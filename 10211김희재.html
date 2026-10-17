@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wi-Fi AP 최적 배치 시뮬레이터 (Log-Distance Path Loss)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- KaTeX for Math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            user-select: none;
+        }
+        canvas {
+            touch-action: none;
+        }
+        .gradient-bar {
+            background: linear-gradient(to right, #ef4444, #f59e0b, #eab308, #22c55e, #3b82f6);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between selection:bg-sky-500 selection:text-white">
+
+    <!-- Header -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-4 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-sky-500/10 border border-sky-500/20 rounded-xl text-sky-400">
+                    <i class="fa-solid fa-wifi text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg text-slate-100 flex items-center gap-2">
+                        Wi-Fi AP 최적 배치 시뮬레이터
+                        <span class="text-xs font-normal px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30">Log-Distance Model</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">실내 벽면 장애물 및 대역별 전파 감쇄(Path Loss) 기반 유효 신호 분석기</p>
+                </div>
+            </div>
+            
+            <!-- Quick Info Badges -->
+            <div class="flex items-center gap-3 text-xs text-slate-300">
+                <button type="button" onclick="openGuideModal()" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg flex items-center gap-2 font-medium transition cursor-pointer z-10">
+                    <i class="fa-solid fa-graduation-cap text-amber-400"></i>
+                    <span>초보자 가이드</span>
+                </button>
+                <div class="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="apCountText">AP: 2대</span>
+                </div>
+                <div class="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 flex items-center gap-2">
+                    <i class="fa-solid fa-square-minus text-amber-400"></i>
+                    <span id="wallCountText">장애물: 0개</span>
+                </div>
+                <button type="button" onclick="diagnoseCurrentRx()" class="bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 border border-sky-500/40 px-3 py-1.5 rounded-lg flex items-center gap-2 font-medium transition cursor-pointer z-10 shadow-lg animate-bounce">
+                    <i class="fa-solid fa-wand-magic-sparkles text-sky-400"></i>
+                    <span>스마트 음영 진단 (솔루션)</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Welcome / Quick Start Alert Banner -->
+    <div id="welcomeBanner" class="bg-sky-950/40 border-b border-sky-800/40 px-6 py-2 text-xs text-sky-200">
+        <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-hand-sparkles text-sky-400"></i>
+                <span><b>처음 오셨나요?</b> AP나 수신기 핀을 드래그해보거나, 상단 <b>'스마트 음영 진단'</b> 버튼으로 음영 지역 해결책을 확인해보세요!</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <button type="button" onclick="openGuideModal()" class="underline hover:text-white font-medium cursor-pointer">1분 가이드 보기</button>
+                <button type="button" onclick="document.getElementById('welcomeBanner').remove()" class="text-slate-400 hover:text-white cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Container: Side-by-Side 2-Column Dashboard -->
+    <main class="max-w-7xl w-full mx-auto p-4 md:p-6 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+        <!-- Left Column: Canvas & Status Metrics (8 Cols) -->
+        <div class="lg:col-span-8 flex flex-col gap-4">
+
+            <!-- Canvas Top Toolbar -->
+            <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                <!-- Tool Selection Buttons -->
+                <div class="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                    <button id="toolSelect" onclick="setTool('select')" class="px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition text-slate-300 hover:text-white">
+                        <i class="fa-solid fa-hand-pointer"></i> 선택/이동
+                    </button>
+                    <button id="toolAP" onclick="setTool('ap')" class="px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition text-slate-300 hover:text-white">
+                        <i class="fa-solid fa-tower-broadcast text-sky-400"></i> AP 추가
+                    </button>
+                    <button id="toolWall" onclick="setTool('wall')" class="px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition text-slate-300 hover:text-white">
+                        <i class="fa-solid fa-ruler-combined text-amber-400"></i> 벽 그리기
+                    </button>
+                    <button id="toolReceiver" onclick="setTool('receiver')" class="px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition text-slate-300 hover:text-white">
+                        <i class="fa-solid fa-mobile-screen-button text-emerald-400"></i> 수신기 핀
+                    </button>
+                </div>
+
+                <!-- Visualization Mode & Quick Controls -->
+                <div class="flex items-center gap-2">
+                    <select id="vizModeSelect" onchange="updateSim()" class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-sky-500">
+                        <option value="heatmap">전파 히트맵 (RSSI)</option>
+                        <option value="bestAp">최적 AP 커버리지 영역</option>
+                        <option value="contour">등신호선 (Contour)</option>
+                    </select>
+
+                    <button onclick="clearWalls()" title="장애물 지우기" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition">
+                        <i class="fa-solid fa-eraser"></i> 벽 삭제
+                    </button>
+                    <button onclick="resetAll()" title="전체 초기화" class="px-2.5 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 rounded-lg border border-rose-800/50 transition">
+                        <i class="fa-solid fa-rotate-right"></i> 초기화
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Interactive Canvas -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 relative flex flex-col items-center justify-center shadow-2xl overflow-hidden">
+                <canvas id="simCanvas" class="w-full h-auto bg-slate-950 rounded-lg cursor-crosshair border border-slate-800/80 shadow-inner"></canvas>
+                
+                <!-- Helper Overlay Info -->
+                <div class="absolute top-5 left-5 bg-slate-950/80 backdrop-blur border border-slate-800 text-[11px] text-slate-300 px-3 py-1.5 rounded-lg pointer-events-none flex items-center gap-2">
+                    <i class="fa-solid fa-circle-info text-sky-400"></i>
+                    <span>지점 클릭/드래그로 AP·벽·수신기 조작.</span>
+                </div>
+
+                <!-- Overlay Color Legend Bar -->
+                <div class="w-full mt-3 px-2 flex items-center justify-between gap-4 text-[11px] text-slate-400">
+                    <div class="flex items-center gap-2">
+                        <span>약함 (-90 dBm)</span>
+                        <div class="w-32 h-2.5 rounded-full gradient-bar border border-slate-700/50"></div>
+                        <span>강함 (-30 dBm)</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> 양호(-65↑)</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> 보통(-78↑)</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span> 음영/불량</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Receiver Measurement Metrics Bar -->
+            <div id="receiverPanel" class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400">
+                        <i class="fa-solid fa-tower-cell text-xl"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400 flex items-center gap-1.5">
+                            측정용 수신기 위치
+                            <span id="rxPosText" class="font-mono text-slate-300">(x: 400, y: 350)</span>
+                        </div>
+                        <div class="text-base md:text-lg font-bold text-slate-100 flex items-baseline gap-2">
+                            수신 신호 강도: <span id="rxRssiText" class="text-sky-400 font-mono text-xl">-52 dBm</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-4 text-xs">
+                    <div class="border-l border-slate-800 pl-4">
+                        <span class="text-slate-400 block">연결 추천 AP</span>
+                        <span id="rxConnectedAp" class="font-semibold text-slate-200">AP #1</span>
+                    </div>
+                    <div class="border-l border-slate-800 pl-4">
+                        <span class="text-slate-400 block">예상 속도</span>
+                        <span id="rxSpeedText" class="font-semibold text-emerald-400">~ 286 Mbps</span>
+                    </div>
+                    <div class="border-l border-slate-800 pl-4">
+                        <span class="text-slate-400 block">통과 장애물</span>
+                        <span id="rxWallCount" class="font-semibold text-amber-400">0개 벽</span>
+                    </div>
+                    <button type="button" onclick="diagnoseCurrentRx()" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow">
+                        <i class="fa-solid fa-lightbulb text-slate-950"></i>
+                        <span>현실적 개선책 보기</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Settings, Parameters & Formula (4 Cols) -->
+        <div class="lg:col-span-4 flex flex-col gap-4">
+
+            <!-- Presets Selector -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-building text-amber-400"></i> 평면도 구조 프리셋
+                </h2>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <button type="button" onclick="loadPreset('office')" class="p-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 font-medium text-left flex items-center gap-2 transition">
+                        <i class="fa-solid fa-briefcase text-sky-400"></i> 사무실 구도
+                    </button>
+                    <button type="button" onclick="loadPreset('home')" class="p-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 font-medium text-left flex items-center gap-2 transition">
+                        <i class="fa-solid fa-house text-emerald-400"></i> 아파트 구조
+                    </button>
+                    <button type="button" onclick="loadPreset('corridor')" class="p-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 font-medium text-left flex items-center gap-2 transition">
+                        <i class="fa-solid fa-shoe-prints text-purple-400"></i> 복도형 구조
+                    </button>
+                    <button type="button" onclick="loadPreset('empty')" class="p-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 font-medium text-left flex items-center gap-2 transition">
+                        <i class="fa-solid fa-square-minus text-rose-400"></i> 빈 공간
+                    </button>
+                </div>
+            </div>
+
+            <!-- RF Signal & Physical Environment Parameters -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+                <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
+                    <i class="fa-solid fa-sliders text-sky-400"></i> 무선 전파 파라미터 설정
+                </h2>
+
+                <!-- Frequency Selection -->
+                <div class="space-y-1.5">
+                    <label class="text-xs text-slate-300 flex justify-between">
+                        <span>주파수 대역</span>
+                        <span id="freqVal" class="text-sky-400 font-mono">5.0 GHz</span>
+                    </label>
+                    <select id="freqSelect" onchange="updateWallTypeInfo()" class="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-lg p-2 text-xs outline-none focus:border-sky-500">
+                        <option value="2.4">2.4 GHz (높은 투과율, 넓은 반경)</option>
+                        <option value="5.0" selected>5.0 GHz (고속 전송, 장애물 감쇄 보통)</option>
+                        <option value="6.0">6.0 GHz (Wi-Fi 6E/7, 초고속, 투과율 낮음)</option>
+                        <option value="60.0">60.0 GHz (WiGig, 직진성, 벽 투과 불가)</option>
+                    </select>
+                </div>
+
+                <!-- Transmitter Power Slider -->
+                <div class="space-y-1.5">
+                    <label class="text-xs text-slate-300 flex justify-between">
+                        <span>AP 송신 출력 ($P_t$)</span>
+                        <span class="text-sky-400 font-mono"><span id="txPowerVal">20</span> dBm</span>
+                    </label>
+                    <input type="range" id="txPower" min="10" max="30" value="20" step="1" oninput="updateSim()" class="w-full accent-sky-500 bg-slate-950 rounded-lg h-1.5 cursor-pointer">
+                </div>
+
+                <!-- Path Loss Exponent (n) -->
+                <div class="space-y-1.5">
+                    <label class="text-xs text-slate-300 flex justify-between">
+                        <span>경로 손실 지수 ($n$)</span>
+                        <span id="pleVal" class="text-sky-400 font-mono">3.0</span>
+                    </label>
+                    <input type="range" id="ple" min="2.0" max="5.0" value="3.0" step="0.1" oninput="updateSim()" class="w-full accent-sky-500 bg-slate-950 rounded-lg h-1.5 cursor-pointer">
+                </div>
+
+                <!-- Wall Material Selector -->
+                <div class="space-y-1.5">
+                    <label class="text-xs text-slate-300 flex justify-between">
+                        <span>설치할 벽 종류</span>
+                        <span id="wallAttenVal" class="text-amber-400 font-mono">-18 dB</span>
+                    </label>
+                    <select id="wallTypeSelect" onchange="updateWallTypeInfo()" class="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-lg p-2 text-xs outline-none focus:border-sky-500">
+                        <option value="concrete" data-atten-24="12" data-atten-50="18" data-atten-60="22" data-atten-60g="40">콘크리트 벽 (5G: -18dB)</option>
+                        <option value="brick" data-atten-24="6" data-atten-50="10" data-atten-60="12" data-atten-60g="28">벽돌 / 석고보드 (5G: -10dB)</option>
+                        <option value="glass" data-atten-24="3" data-atten-50="5" data-atten-60="7" data-atten-60g="15">유리 창문 (5G: -5dB)</option>
+                        <option value="wood" data-atten-24="4" data-atten-50="7" data-atten-60="9" data-atten-60g="20">목재 문 / 가구 (5G: -7dB)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Math & Physics Explanation Panel -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs text-slate-300 space-y-3">
+                <h3 class="font-semibold text-slate-200 border-b border-slate-800 pb-2 flex items-center gap-2">
+                    <i class="fa-solid fa-square-root-variable text-emerald-400"></i> 적용 수식 모델
+                </h3>
+                
+                <p class="leading-relaxed text-slate-400 text-[11px]">
+                    전파는 거리가 멀어질수록, 장애물을 통과할수록 세기가 로그 함수 형태로 약해집니다.
+                </p>
+
+                <div id="formulaBox" class="bg-slate-950 border border-slate-800/80 p-2.5 rounded-lg overflow-x-auto text-slate-100 font-mono my-1 text-center text-[11px]">
+                    <!-- KaTeX formula rendered here -->
+                </div>
+
+                <ul class="list-disc list-inside space-y-1 text-[11px] text-slate-400">
+                    <li><strong class="text-slate-300">FSPL($d_0$):</strong> $d_0=1\text{m}$ 기준 자유공간 경로손실</li>
+                    <li><strong class="text-slate-300">$n$:</strong> 실내 전파 감쇄 지수</li>
+                    <li><strong class="text-slate-300">$W_i$:</strong> 통과한 장애물별 감쇄량(dB)</li>
+                    <li><strong class="text-slate-300">RSSI:</strong> 수신 신호 강도 ($P_t - PL(d)$)</li>
+                </ul>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Diagnosis Modal Popup -->
+    <div id="diagModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-4">
+            <button type="button" onclick="closeModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 cursor-pointer">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            
+            <div class="flex items-center gap-3">
+                <div class="p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-sky-400">
+                    <i class="fa-solid fa-wand-magic-sparkles text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-slate-100">현실적 음영 개선 진단 리포트</h3>
+                    <p id="diagPosText" class="text-xs text-slate-400">선택 지점: (x: 0, y: 0)</p>
+                </div>
+            </div>
+
+            <div id="diagStatusBox" class="p-3.5 rounded-xl border flex items-center justify-between text-xs font-medium">
+                <!-- Status badge injected JS -->
+            </div>
+
+            <div class="space-y-2">
+                <h4 class="text-xs font-semibold text-slate-300">🔍 원인 분석</h4>
+                <p id="diagCauseText" class="text-xs text-slate-400 leading-relaxed bg-slate-950 p-3 rounded-xl border border-slate-800/80">
+                    <!-- Cause analysis text -->
+                </p>
+            </div>
+
+            <div class="space-y-2">
+                <h4 class="text-xs font-semibold text-slate-300">💡 현실적인 해결 가이드 (실무 제안)</h4>
+                <ul id="diagRecList" class="space-y-2 text-xs">
+                    <!-- Real-world recommendations -->
+                </ul>
+            </div>
+
+            <div class="pt-2 flex justify-end">
+                <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg text-xs transition cursor-pointer">
+                    확인 및 닫기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Beginner Guide Interactive Modal -->
+    <div id="guideModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative space-y-5 max-h-[90vh] overflow-y-auto">
+            <button type="button" onclick="closeGuideModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 cursor-pointer">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <div class="flex items-center gap-3">
+                <div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400">
+                    <i class="fa-solid fa-compass text-2xl"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-lg text-slate-100">Wi-Fi AP 시뮬레이터 쉬운 사용법</h3>
+                    <p class="text-xs text-slate-400">가장 최적의 공유기 위치를 찾기 위한 4단계 가이드</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <!-- Step 1 -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div class="flex items-center gap-2 text-sky-400 font-semibold">
+                        <span class="w-5 h-5 rounded-full bg-sky-500/20 flex items-center justify-center text-[10px]">1</span>
+                        <span>AP (공유기) 이동 및 추가</span>
+                    </div>
+                    <p class="text-slate-400 leading-relaxed">
+                        화면상의 <span class="text-sky-400 font-semibold">AP #1, AP #2</span> 아이콘을 마우스로 드래그하여 옮겨보세요. 상단 메뉴에서 AP를 새로 추가할 수도 있습니다.
+                    </p>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div class="flex items-center gap-2 text-amber-400 font-semibold">
+                        <span class="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center text-[10px]">2</span>
+                        <span>벽(장애물) 그리기</span>
+                    </div>
+                    <p class="text-slate-400 leading-relaxed">
+                        <b>'벽 그리기'</b> 툴을 선택하고 화면에 드래그하면 콘크리트나 유리벽이 설치됩니다. 벽을 지나며 와이파이가 약해지는 모습을 확인해보세요.
+                    </p>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div class="flex items-center gap-2 text-emerald-400 font-semibold">
+                        <span class="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-[10px]">3</span>
+                        <span>수신기 위치에서 신호 측정</span>
+                    </div>
+                    <p class="text-slate-400 leading-relaxed">
+                        초록색 <b>'수신기'</b> 핀을 스마트폰이나 노트북을 사용하는 위치로 끌어놓으면 예상 연결 속도와 통과한 벽 개수가 실시간 계산됩니다.
+                    </p>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div class="flex items-center gap-2 text-purple-400 font-semibold">
+                        <span class="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center text-[10px]">4</span>
+                        <span>스마트 음영 진단 사용</span>
+                    </div>
+                    <p class="text-slate-400 leading-relaxed">
+                        신호가 안 터지는 곳을 클릭하고 상단 <b>'스마트 음영 진단'</b> 버튼을 누르면 AI가 와이파이가 잘 안 터지는 원인과 현실적인 해결 방안을 안내합니다.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Signal Color Tip -->
+            <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs flex items-center justify-between gap-2">
+                <span class="text-slate-300 font-medium">💡 색상 보는 방법:</span>
+                <div class="flex items-center gap-3 text-[11px]">
+                    <span class="text-blue-400"><i class="fa-solid fa-square"></i> 파란색 (최상)</span>
+                    <span class="text-emerald-400"><i class="fa-solid fa-square"></i> 초록색 (양호)</span>
+                    <span class="text-amber-400"><i class="fa-solid fa-square"></i> 노란색 (보통)</span>
+                    <span class="text-rose-400"><i class="fa-solid fa-square"></i> 빨간색 (음영/불량)</span>
+                </div>
+            </div>
+
+            <div class="pt-1 flex justify-between items-center text-xs">
+                <span class="text-slate-500">우측 사전 설정(오피스/아파트)을 활용해 쉽게 시작해 보세요.</span>
+                <button type="button" onclick="closeGuideModal()" class="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white font-medium rounded-lg transition cursor-pointer">
+                    시작하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800 bg-slate-950 px-6 py-4 text-center text-xs text-slate-500">
+        Log-distance Path Loss Model Simulation • Web Interactive Tool for Wireless Network Optimization
+    </footer>
+
+    <script>
+        // Canvas Setup & Canvas Dynamic Resizing
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Fixed simulation logical resolution
+        const SIM_WIDTH = 800;
+        const SIM_HEIGHT = 500;
+        canvas.width = SIM_WIDTH;
+        canvas.height = SIM_HEIGHT;
+
+        // Simulation State
+        let currentTool = 'select'; // 'select', 'ap', 'wall', 'receiver'
+
+        // AP list: Array of { id, x, y }
+        let aps = [
+            { id: 1, x: 250, y: 250 },
+            { id: 2, x: 550, y: 250 }
+        ];
+
+        // Wall list: Array of { p1: {x,y}, p2: {x,y}, type: string, attenuation: number }
+        let walls = [];
+
+        // Receiver Pin: { x, y }
+        let receiver = { x: 400, y: 350 };
+
+        // Interaction State Variables
+        let isDrawingWall = false;
+        let wallStartPos = null;
+        let currentMousePos = null;
+        let draggedObject = null; // { type: 'ap'|'receiver', index: number }
+
+        function setTool(toolName) {
+            currentTool = toolName;
+            
+            const btnMap = {
+                select: 'toolSelect',
+                ap: 'toolAP',
+                wall: 'toolWall',
+                receiver: 'toolReceiver'
+            };
+
+            Object.keys(btnMap).forEach(key => {
+                const btn = document.getElementById(btnMap[key]);
+                if (!btn) return;
+                if (key === toolName) {
+                    btn.className = "px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition bg-sky-500/20 text-sky-400 border border-sky-500/30";
+                } else {
+                    btn.className = "px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition text-slate-300 hover:text-white border border-transparent";
+                }
+            });
+        }
+
+        function updateWallTypeInfo() {
+            const select = document.getElementById('wallTypeSelect');
+            const freqElem = document.getElementById('freqSelect');
+            const freq = freqElem ? parseFloat(freqElem.value) : 2.4;
+            
+            if (!select) return;
+            const opt = select.options[select.selectedIndex];
+            if (!opt) return;
+            
+            let atten = opt.getAttribute('data-atten-24') || 12;
+            if (freq >= 60) atten = opt.getAttribute('data-atten-60g') || 40;
+            else if (freq >= 6) atten = opt.getAttribute('data-atten-60') || 22;
+            else if (freq >= 5) atten = opt.getAttribute('data-atten-50') || 18;
+
+            const wallAttenElem = document.getElementById('wallAttenVal');
+            if (wallAttenElem) {
+                wallAttenElem.innerText = `-${atten} dB`;
+            }
+            updateSim();
+        }
+
+        // Line-segment intersection test
+        function intersects(p1, p2, p3, p4) {
+            function ccw(A, B, C) {
+                return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
+            }
+            return (ccw(p1, p3, p4) !== ccw(p2, p3, p4)) && (ccw(p1, p2, p3) !== ccw(p1, p2, p4));
+        }
+
+        // Calculate Log-distance Path Loss from a single AP to point (x, y)
+        function calculateRSSI(ap, targetX, targetY, freq, Pt, n) {
+            // Distance in meters (Scale: 20 pixels = 1 meter)
+            const dx = (targetX - ap.x) / 20;
+            const dy = (targetY - ap.y) / 20;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 0.5) dist = 0.5; // Avoid singularity at distance 0
+
+            // FSPL at d0 = 1m
+            const fspl1m = 20 * Math.log10(freq * 1000) + 32.44;
+
+            // Path Loss over distance d
+            let pathLoss = fspl1m + 10 * n * Math.log10(dist);
+
+            // Wall Attenuation Sum
+            let totalWallAtten = 0;
+            let wallIntersectCount = 0;
+
+            for (let wall of walls) {
+                if (intersects(ap, { x: targetX, y: targetY }, wall.p1, wall.p2)) {
+                    totalWallAtten += wall.attenuation;
+                    wallIntersectCount++;
+                }
+            }
+
+            pathLoss += totalWallAtten;
+            const rssi = Pt - pathLoss;
+
+            return {
+                rssi: rssi,
+                dist: dist,
+                wallCount: wallIntersectCount,
+                wallAtten: totalWallAtten
+            };
+        }
+
+        // Convert DOM screen pointer to simulation logical coordinates
+        function getCanvasCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else if (e.changedTouches && e.changedTouches.length > 0) {
+                clientX = e.changedTouches[0].clientX;
+                clientY = e.changedTouches[0].clientY;
+            }
+
+            return {
+                x: Math.max(0, Math.min(canvas.width, (clientX - rect.left) * scaleX)),
+                y: Math.max(0, Math.min(canvas.height, (clientY - rect.top) * scaleY))
+            };
+        }
+
+        // Event Listeners for Interaction
+        canvas.addEventListener('mousedown', handlePointerDown);
+        canvas.addEventListener('touchstart', handlePointerDown, { passive: false });
+
+        canvas.addEventListener('mousemove', handlePointerMove);
+        canvas.addEventListener('touchmove', handlePointerMove, { passive: false });
+
+        window.addEventListener('mouseup', handlePointerUp);
+        window.addEventListener('touchend', handlePointerUp);
+
+        function handlePointerDown(e) {
+            e.preventDefault();
+            const pos = getCanvasCoords(e);
+
+            if (currentTool === 'select') {
+                // Check if clicked near an AP
+                for (let i = 0; i < aps.length; i++) {
+                    const dist = Math.hypot(aps[i].x - pos.x, aps[i].y - pos.y);
+                    if (dist < 22) {
+                        draggedObject = { type: 'ap', index: i };
+                        return;
+                    }
+                }
+                // Check if clicked near receiver pin
+                const distRx = Math.hypot(receiver.x - pos.x, receiver.y - pos.y);
+                if (distRx < 22) {
+                    draggedObject = { type: 'receiver' };
+                    return;
+                }
+
+                // If clicked on empty space, relocate receiver pin
+                receiver = { x: pos.x, y: pos.y };
+                updateSim();
+
+            } else if (currentTool === 'ap') {
+                if (aps.length < 8) {
+                    aps.push({ id: Date.now() % 1000, x: pos.x, y: pos.y });
+                    updateSim();
+                }
+            } else if (currentTool === 'wall') {
+                isDrawingWall = true;
+                wallStartPos = pos;
+                currentMousePos = pos;
+            } else if (currentTool === 'receiver') {
+                receiver = { x: pos.x, y: pos.y };
+                updateSim();
+            }
+        }
+
+        function handlePointerMove(e) {
+            const pos = getCanvasCoords(e);
+            currentMousePos = pos;
+
+            if (draggedObject) {
+                e.preventDefault();
+                if (draggedObject.type === 'ap') {
+                    aps[draggedObject.index].x = pos.x;
+                    aps[draggedObject.index].y = pos.y;
+                } else if (draggedObject.type === 'receiver') {
+                    receiver.x = pos.x;
+                    receiver.y = pos.y;
+                }
+                updateSim();
+            } else if (isDrawingWall && currentTool === 'wall') {
+                e.preventDefault();
+                updateSim(); // Redraws background + current drawing wall
+            }
+        }
+
+        function handlePointerUp(e) {
+            if (isDrawingWall && currentTool === 'wall' && wallStartPos) {
+                const endPos = getCanvasCoords(e);
+
+                // Determine wall attenuation from select box
+                const select = document.getElementById('wallTypeSelect');
+                const freq = parseFloat(document.getElementById('freqSelect').value);
+                const opt = select.options[select.selectedIndex];
+                const type = select.value;
+                
+                let atten = parseFloat(opt.getAttribute('data-atten-24'));
+                if (freq >= 60) atten = parseFloat(opt.getAttribute('data-atten-60g'));
+                else if (freq >= 6) atten = parseFloat(opt.getAttribute('data-atten-60'));
+                else if (freq >= 5) atten = parseFloat(opt.getAttribute('data-atten-50'));
+
+                // Minimum length check (10 pixels)
+                if (Math.hypot(endPos.x - wallStartPos.x, endPos.y - wallStartPos.y) > 10) {
+                    walls.push({
+                        p1: wallStartPos,
+                        p2: endPos,
+                        type: type,
+                        attenuation: atten
+                    });
+                }
+
+                isDrawingWall = false;
+                wallStartPos = null;
+                updateSim();
+            }
+            draggedObject = null;
+        }
+
+        function updateSim() {
+            const freqElem = document.getElementById('freqSelect');
+            const txPowerElem = document.getElementById('txPower');
+            const pleElem = document.getElementById('ple');
+
+            const freq = freqElem ? parseFloat(freqElem.value) : 2.4;
+            const Pt = txPowerElem ? parseFloat(txPowerElem.value) : 20;
+            const n = pleElem ? parseFloat(pleElem.value) : 3.0;
+            
+            const vizModeElem = document.getElementById('vizModeSelect');
+            const vizMode = vizModeElem ? vizModeElem.value : 'heatmap';
+
+            // UI Label updates safely
+            const freqValElem = document.getElementById('freqVal');
+            if (freqValElem) freqValElem.innerText = `${freq.toFixed(1)} GHz`;
+
+            const txPowerValElem = document.getElementById('txPowerVal');
+            if (txPowerValElem) txPowerValElem.innerText = Pt;
+
+            const pleValElem = document.getElementById('pleVal');
+            if (pleValElem) pleValElem.innerText = n.toFixed(1);
+
+            const apCountTextElem = document.getElementById('apCountText');
+            if (apCountTextElem) apCountTextElem.innerText = `AP: ${aps.length}대`;
+
+            const wallCountTextElem = document.getElementById('wallCountText');
+            if (wallCountTextElem) wallCountTextElem.innerText = `장애물: ${walls.length}개`;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Grid Signal Processing (Pixel-by-Pixel Heatmap Grid)
+            const step = 8;
+            for (let x = 0; x < canvas.width; x += step) {
+                for (let y = 0; y < canvas.height; y += step) {
+                    let bestRssi = -150;
+                    let bestApIdx = -1;
+
+                    aps.forEach((ap, idx) => {
+                        const res = calculateRSSI(ap, x + step/2, y + step/2, freq, Pt, n);
+                        if (res.rssi > bestRssi) {
+                            bestRssi = res.rssi;
+                            bestApIdx = idx;
+                        }
+                    });
+
+                    if (vizMode === 'heatmap') {
+                        // Color Mapping based on RSSI (-90 dBm to -30 dBm)
+                        let norm = (bestRssi + 90) / 60;
+                        norm = Math.max(0, Math.min(1, norm));
+                        const hue = norm * 240; // 0=Red, 120=Green, 240=Blue
+                        ctx.fillStyle = `hsla(${hue}, 80%, 45%, 0.55)`;
+                    } else if (vizMode === 'bestAp') {
+                        // Distinct colors per AP
+                        const colors = [
+                            'hsla(200, 90%, 50%, 0.5)',
+                            'hsla(140, 80%, 45%, 0.5)',
+                            'hsla(350, 80%, 55%, 0.5)',
+                            'hsla(45, 90%, 50%, 0.5)',
+                            'hsla(280, 80%, 50%, 0.5)'
+                        ];
+                        ctx.fillStyle = bestApIdx >= 0 ? colors[bestApIdx % colors.length] : 'rgba(15, 23, 42, 0.8)';
+                    } else if (vizMode === 'contour') {
+                        // Contour Line Intervals
+                        let norm = (bestRssi + 90) / 60;
+                        norm = Math.max(0, Math.min(1, norm));
+                        const contourBand = Math.floor(bestRssi / 6) % 2 === 0;
+                        ctx.fillStyle = contourBand ? `hsla(${norm * 240}, 75%, 45%, 0.6)` : `hsla(${norm * 240}, 60%, 25%, 0.4)`;
+                    }
+
+                    ctx.fillRect(x, y, step, step);
+                }
+            }
+
+            // 2. Render Walls
+            walls.forEach(wall => {
+                ctx.lineWidth = 6;
+                if (wall.type === 'concrete') ctx.strokeStyle = '#94a3b8';
+                else if (wall.type === 'brick') ctx.strokeStyle = '#f97316';
+                else if (wall.type === 'glass') ctx.strokeStyle = '#38bdf8';
+                else ctx.strokeStyle = '#eab308'; // wood
+
+                ctx.beginPath();
+                ctx.moveTo(wall.p1.x, wall.p1.y);
+                ctx.lineTo(wall.p2.x, wall.p2.y);
+                ctx.stroke();
+            });
+
+            // 3. Render Wall in Creation (Preview)
+            if (isDrawingWall && wallStartPos && currentMousePos) {
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 4;
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                ctx.moveTo(wallStartPos.x, wallStartPos.y);
+                ctx.lineTo(currentMousePos.x, currentMousePos.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // 4. Render Access Points (APs)
+            aps.forEach((ap, idx) => {
+                // Outer glow
+                ctx.fillStyle = 'rgba(14, 165, 233, 0.25)';
+                ctx.beginPath();
+                ctx.arc(ap.x, ap.y, 22, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Core icon background
+                ctx.fillStyle = '#0284c7';
+                ctx.beginPath();
+                ctx.arc(ap.x, ap.y, 12, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+
+                // AP Label
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = 'bold 11px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(`AP #${idx + 1}`, ap.x, ap.y - 18);
+            });
+
+            // 5. Render Receiver Pin
+            // Signal beam from closest/best AP to receiver
+            let maxRssi = -150;
+            let connectedApIdx = -1;
+            let bestMetrics = null;
+
+            aps.forEach((ap, idx) => {
+                const res = calculateRSSI(ap, receiver.x, receiver.y, freq, Pt, n);
+                if (res.rssi > maxRssi) {
+                    maxRssi = res.rssi;
+                    connectedApIdx = idx;
+                    bestMetrics = res;
+                }
+            });
+
+            if (connectedApIdx >= 0) {
+                const connAp = aps[connectedApIdx];
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.6)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(connAp.x, connAp.y);
+                ctx.lineTo(receiver.x, receiver.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Receiver Icon Pin
+            ctx.fillStyle = '#10b981';
+            ctx.beginPath();
+            ctx.arc(receiver.x, receiver.y, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 10px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText("수신기", receiver.x, receiver.y + 22);
+
+            // 6. Update Bottom Status Panel
+            document.getElementById('rxPosText').innerText = `(x: ${Math.round(receiver.x)}, y: ${Math.round(receiver.y)})`;
+            
+            const rssiVal = Math.round(maxRssi);
+            const rssiElem = document.getElementById('rxRssiText');
+            rssiElem.innerText = `${rssiVal} dBm`;
+            if (rssiVal >= -65) rssiElem.className = "text-emerald-400 font-mono text-xl";
+            else if (rssiVal >= -78) rssiElem.className = "text-amber-400 font-mono text-xl";
+            else rssiElem.className = "text-rose-400 font-mono text-xl";
+
+            if (connectedApIdx >= 0) {
+                document.getElementById('rxConnectedAp').innerText = `AP #${connectedApIdx + 1}`;
+                
+                // Estimated throughput speed calculation heuristic
+                let speedMbps = Math.max(0, Math.round((maxRssi + 95) * 12));
+                if (freq >= 6.0) speedMbps *= 2.2;
+                else if (freq >= 5.0) speedMbps *= 1.6;
+
+                document.getElementById('rxSpeedText').innerText = speedMbps > 0 ? `~ ${speedMbps} Mbps` : '연결 불가';
+                document.getElementById('rxWallCount').innerText = `${bestMetrics.wallCount}개 벽 통과`;
+            } else {
+                document.getElementById('rxConnectedAp').innerText = '없음';
+                document.getElementById('rxSpeedText').innerText = '0 Mbps';
+                document.getElementById('rxWallCount').innerText = '0개';
+            }
+        }
+
+        function diagnoseCurrentRx() {
+            diagnosePoint(receiver.x, receiver.y);
+        }
+
+        function diagnosePoint(x, y) {
+            const freq = parseFloat(document.getElementById('freqSelect').value);
+            const Pt = parseFloat(document.getElementById('txPower').value);
+            const n = parseFloat(document.getElementById('ple').value);
+
+            let bestRssi = -150;
+            let bestApIdx = -1;
+            let bestAp = null;
+            let bestMetrics = null;
+
+            aps.forEach((ap, idx) => {
+                const res = calculateRSSI(ap, x, y, freq, Pt, n);
+                if (res.rssi > bestRssi) {
+                    bestRssi = res.rssi;
+                    bestApIdx = idx;
+                    bestAp = ap;
+                    bestMetrics = res;
+                }
+            });
+
+            const posText = `선택 위치: (x: ${Math.round(x)}, y: ${Math.round(y)})`;
+            document.getElementById('diagPosText').innerText = posText;
+
+            const statusBox = document.getElementById('diagStatusBox');
+            const causeText = document.getElementById('diagCauseText');
+            const recList = document.getElementById('diagRecList');
+            recList.innerHTML = '';
+
+            const rssiVal = Math.round(bestRssi);
+
+            // Status Styling
+            if (rssiVal >= -65) {
+                statusBox.className = "p-3.5 rounded-xl border flex items-center justify-between text-xs font-medium bg-emerald-500/10 border-emerald-500/30 text-emerald-300";
+                statusBox.innerHTML = `<span>수신 신호 양호 (${rssiVal} dBm)</span><span class="px-2 py-0.5 rounded bg-emerald-500/20">정상</span>`;
+                causeText.innerText = "신호 품질이 우수합니다. 웹 서핑, 4K 스트리밍 및 실시간 게임 통신에 적합합니다.";
+                
+                const li = document.createElement('li');
+                li.className = "bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-300 flex items-center gap-2";
+                li.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400"></i> 현재 AP 배치 상태를 유지하십시오.`;
+                recList.appendChild(li);
+
+            } else {
+                let stateLabel = rssiVal >= -78 ? "보통 / 경계" : "신호 음영 지역 (약함)";
+                statusBox.className = "p-3.5 rounded-xl border flex items-center justify-between text-xs font-medium bg-rose-500/10 border-rose-500/30 text-rose-300";
+                statusBox.innerHTML = `<span>수신 신호 약함 (${rssiVal} dBm)</span><span class="px-2 py-0.5 rounded bg-rose-500/20">${stateLabel}</span>`;
+
+                let causeMessage = [];
+                let recommendations = [];
+
+                if (!bestAp) {
+                    causeMessage.push("현재 설치된 AP가 없습니다.");
+                    recommendations.push({
+                        icon: "fa-tower-broadcast text-sky-400",
+                        text: "상단 툴바의 'AP 추가' 버튼을 눌러 공유기를 새로 배치하세요."
+                    });
+                } else {
+                    if (bestMetrics.wallCount > 0) {
+                        causeMessage.push(`AP #${bestApIdx + 1} 사이의 두꺼운 벽면(${bestMetrics.wallCount}개 벽)으로 인해 약 -${bestMetrics.wallAtten}dBm의 전파 감쇄가 발생하고 있습니다.`);
+                        
+                        recommendations.push({
+                            icon: "fa-network-wired text-purple-400",
+                            text: `<b>메시(Mesh) 와이파이 확장기 추가:</b> 벽을 허물 수 없으므로, 문틀이나 복도 쪽에 이지메시(Mesh) 확장기를 설치해 전파를 우회 연결하세요.`
+                        });
+
+                        recommendations.push({
+                            icon: "fa-door-open text-amber-400",
+                            text: `<b>공유기 위치 높이 및 각도 조정:</b> 공유기를 서랍장 위나 천장 가까운 높은 위치로 올리고 문 개방 방향으로 전파가 회절되도록 위치시킵니다.`
+                        });
+                    }
+
+                    if (bestMetrics.dist > 15) {
+                        causeMessage.push(`공유기(AP #${bestApIdx + 1})와의 물리적 직선 거리가 커서 전파 손실이 큽니다.`);
+                        
+                        const midX = Math.round((x + bestAp.x) / 2);
+                        const midY = Math.round((y + bestAp.y) / 2);
+                        recommendations.push({
+                            icon: "fa-arrows-to-dot text-sky-400",
+                            text: `<b>공유기 중앙 재배치:</b> AP #${bestApIdx + 1}을 거실이나 중앙 복도 위치(추천: x=${midX}, y=${midY})로 약간만 옮겨주세요.`
+                        });
+                    }
+
+                    if (freq >= 5.0 && bestMetrics.wallCount > 0) {
+                        recommendations.push({
+                            icon: "fa-wifi text-emerald-400",
+                            text: `<b>주파수 대역 전환:</b> 고주파수(5GHz/6GHz)는 벽 투과력이 약합니다. 벽이 많은 방에서는 회절 및 투과력이 좋은 2.4GHz Wi-Fi로 와이파이 단말을 연결하세요.`
+                        });
+                    }
+
+                    if (Pt < 25) {
+                        recommendations.push({
+                            icon: "fa-sliders text-sky-400",
+                            text: `<b>AP 송신 출력 강화:</b> 공유기 관리자 페이지(192.168.0.1 등)에서 '무선 송신 출력' 설정이 최대로 되어있는지 확인하세요.`
+                        });
+                    }
+                }
+
+                causeText.innerText = causeMessage.join(" ");
+
+                recommendations.forEach(rec => {
+                    const li = document.createElement('li');
+                    li.className = "bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-300 flex items-start gap-2.5 leading-relaxed";
+                    li.innerHTML = `<i class="fa-solid ${rec.icon} mt-0.5"></i> <div>${rec.text}</div>`;
+                    recList.appendChild(li);
+                });
+            }
+
+            document.getElementById('diagModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('diagModal').classList.add('hidden');
+        }
+
+        function openGuideModal() {
+            const modal = document.getElementById('guideModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+            }
+        }
+
+        function closeGuideModal() {
+            const modal = document.getElementById('guideModal');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function clearWalls() {
+            walls = [];
+            updateSim();
+        }
+
+        function resetAll() {
+            walls = [];
+            aps = [
+                { id: 1, x: 250, y: 250 },
+                { id: 2, x: 550, y: 250 }
+            ];
+            receiver = { x: 400, y: 350 };
+            setTool('select');
+            updateSim();
+        }
+
+        function loadPreset(type) {
+            walls = [];
+            if (type === 'empty') {
+                aps = [{ id: 1, x: 400, y: 250 }];
+            } else if (type === 'office') {
+                // Outer walls
+                walls.push({ p1: { x: 100, y: 80 }, p2: { x: 700, y: 80 }, type: 'concrete', attenuation: 12 });
+                walls.push({ p1: { x: 700, y: 80 }, p2: { x: 700, y: 420 }, type: 'concrete', attenuation: 12 });
+                walls.push({ p1: { x: 700, y: 420 }, p2: { x: 100, y: 420 }, type: 'concrete', attenuation: 12 });
+                walls.push({ p1: { x: 100, y: 420 }, p2: { x: 100, y: 80 }, type: 'concrete', attenuation: 12 });
+
+                // Inner Partitions
+                walls.push({ p1: { x: 320, y: 80 }, p2: { x: 320, y: 280 }, type: 'brick', attenuation: 6 });
+                walls.push({ p1: { x: 500, y: 220 }, p2: { x: 500, y: 420 }, type: 'glass', attenuation: 3 });
+
+                aps = [
+                    { id: 1, x: 200, y: 200 },
+                    { id: 2, x: 580, y: 300 }
+                ];
+            } else if (type === 'home') {
+                walls.push({ p1: { x: 150, y: 100 }, p2: { x: 650, y: 100 }, type: 'concrete', attenuation: 12 });
+                walls.push({ p1: { x: 650, y: 100 }, p2: { x: 650, y: 400 }, type: 'concrete', attenuation: 12 });
+                walls.push({ p1: { x: 650, y: 400 }, p2: { x: 150, y: 400 }, type: 'concrete', attenuation: 12 });
+                walls.push({ p1: { x: 150, y: 400 }, p2: { x: 150, y: 100 }, type: 'concrete', attenuation: 12 });
+
+                walls.push({ p1: { x: 400, y: 100 }, p2: { x: 400, y: 260 }, type: 'concrete', attenuation: 12 });
+                walls.push({ p1: { x: 150, y: 260 }, p2: { x: 330, y: 260 }, type: 'concrete', attenuation: 12 });
+
+                aps = [{ id: 1, x: 270, y: 180 }];
+            } else if (type === 'corridor') {
+                for (let x = 200; x <= 600; x += 100) {
+                    walls.push({ p1: { x: x, y: 100 }, p2: { x: x, y: 280 }, type: 'brick', attenuation: 6 });
+                }
+                aps = [{ id: 1, x: 120, y: 250 }];
+            }
+
+            updateSim();
+        }
+
+        window.onload = function() {
+            setTool('select');
+            updateWallTypeInfo();
+            
+            // Render Math Formula using KaTeX
+            try {
+                katex.render(
+                    "PL(d) = PL(d_0) + 10 \\cdot n \\cdot \\log_{10}\\left(\\frac{d}{d_0}\\right) + \\sum W_{i}",
+                    document.getElementById('formulaBox'),
+                    { displayMode: true, throwOnError: false }
+                );
+            } catch (e) {
+                console.error("KaTeX render error:", e);
+            }
+
+            updateSim();
+        };
+    </script>
+</body>
+</html>
